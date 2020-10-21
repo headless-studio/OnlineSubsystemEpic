@@ -67,7 +67,7 @@ void FOnlinePresenceEpic::EOS_OnPresenceChanged(EOS_Presence_PresenceChangedCall
 {
 	FOnlinePresenceEpic* THIS = static_cast<FOnlinePresenceEpic*>(data->ClientData);
 
-	IOnlineIdentityPtr identityPtr = THIS->subsystem->GetIdentityInterface();
+	IOnlineIdentityPtr identityPtr = THIS->Subsystem->GetIdentityInterface();
 	if (identityPtr)
 	{
 		TSharedPtr<FUniqueNetIdEpic const> fittingNetId;
@@ -93,7 +93,7 @@ void FOnlinePresenceEpic::EOS_OnPresenceChanged(EOS_Presence_PresenceChangedCall
 		// If no such user is found, we try to get it by querying all external mappings.
 		if (fittingNetId)
 		{
-			EOS_HConnect connectHandle = EOS_Platform_GetConnectInterface(THIS->subsystem->PlatformHandle);
+			EOS_HConnect connectHandle = EOS_Platform_GetConnectInterface(THIS->Subsystem->PlatformHandle);
 
 			EOS_Connect_GetExternalAccountMappingsOptions getExternalMappingOpts = {
 				EOS_CONNECT_GETEXTERNALACCOUNTMAPPINGS_API_LATEST,
@@ -172,7 +172,7 @@ void FOnlinePresenceEpic::EOS_QueryExternalAccountMappingsForPresenceComplete(EO
 
 	if (data->ResultCode == EOS_EResult::EOS_Success)
 	{
-		EOS_HConnect connectHandle = EOS_Platform_GetConnectInterface(THIS->subsystem->PlatformHandle);
+		EOS_HConnect connectHandle = EOS_Platform_GetConnectInterface(THIS->Subsystem->PlatformHandle);
 		EOS_Connect_GetExternalAccountMappingsOptions getExternalMappingOpts = {
 				EOS_CONNECT_GETEXTERNALACCOUNTMAPPINGS_API_LATEST,
 				data->LocalUserId,
@@ -273,10 +273,10 @@ EOS_Presence_EStatus FOnlinePresenceEpic::UEPresenceStateToEOSPresenceState(EOnl
 //-------------------------------
 // FOnlineIdentityInterfaceEpic
 //-------------------------------
-FOnlinePresenceEpic::FOnlinePresenceEpic(FOnlineSubsystemEpic const* InSubsystem)
-	: subsystem(InSubsystem)
+FOnlinePresenceEpic::FOnlinePresenceEpic(FOnlineSubsystemEpic* InSubsystem)
+	: Subsystem(InSubsystem), OnPresenceChangedHandle(0)
 {
-	this->presenceHandle = EOS_Platform_GetPresenceInterface(this->subsystem->PlatformHandle);
+	this->PresenceHandle = EOS_Platform_GetPresenceInterface(this->Subsystem->PlatformHandle);
 
 	EOS_Presence_AddNotifyOnPresenceChangedOptions onPresenceChangedOptions = {
 		EOS_PRESENCE_ADDNOTIFYONPRESENCECHANGED_API_LATEST
@@ -296,7 +296,7 @@ void FOnlinePresenceEpic::SetPresence(const FUniqueNetId& User, const FOnlineUse
 			epicNetId.ToEpicAccountId()
 		};
 
-		EOS_EResult eosResult = EOS_Presence_CreatePresenceModification(this->presenceHandle, &createPresenceModOptions, &modHandle);
+		EOS_EResult eosResult = EOS_Presence_CreatePresenceModification(this->PresenceHandle, &createPresenceModOptions, &modHandle);
 		if (eosResult == EOS_EResult::EOS_Success)
 		{
 			// Set the new status
@@ -351,7 +351,7 @@ void FOnlinePresenceEpic::SetPresence(const FUniqueNetId& User, const FOnlineUse
 							epicNetId,
 							Delegate
 						};
-						EOS_Presence_SetPresence(this->presenceHandle, &setPresenceOptions, additionalData, &FOnlinePresenceEpic::EOS_SetPresenceComplete);
+						EOS_Presence_SetPresence(this->PresenceHandle, &setPresenceOptions, additionalData, &FOnlinePresenceEpic::EOS_SetPresenceComplete);
 					}
 					else
 					{
@@ -399,7 +399,7 @@ void FOnlinePresenceEpic::QueryPresence(const FUniqueNetId& User, const FOnPrese
 			epicUser,
 			Delegate
 		};
-		EOS_Presence_QueryPresence(this->presenceHandle, &queryPresenceOptions, additionalData, &FOnlinePresenceEpic::EOS_QueryPresenceComplete);
+		EOS_Presence_QueryPresence(this->PresenceHandle, &queryPresenceOptions, additionalData, &FOnlinePresenceEpic::EOS_QueryPresenceComplete);
 	}
 	else
 	{
@@ -421,7 +421,7 @@ EOnlineCachedResult::Type FOnlinePresenceEpic::GetCachedPresence(const FUniqueNe
 			epicNetId.ToEpicAccountId(),
 			epicNetId.ToEpicAccountId()
 		};
-		EOS_EResult eosResult = EOS_Presence_CopyPresence(this->presenceHandle, &copyPresenceOptions, &presenceInfo);
+		EOS_EResult eosResult = EOS_Presence_CopyPresence(this->PresenceHandle, &copyPresenceOptions, &presenceInfo);
 		if (eosResult == EOS_EResult::EOS_Success)
 		{
 			// Add remaining presence fields to a users presence status, which include additional information 
@@ -443,7 +443,7 @@ EOnlineCachedResult::Type FOnlinePresenceEpic::GetCachedPresence(const FUniqueNe
 			// If the product id is not empty, we assume that the user is playing a game
 			OutPresence->bIsPlaying = presenceInfo->ProductId[0] != '\0';
 
-			FString appId = this->subsystem->GetAppId();
+			FString appId = this->Subsystem->GetAppId();
 
 			FString projectId;
 			FString projectVersion;
@@ -469,10 +469,10 @@ EOnlineCachedResult::Type FOnlinePresenceEpic::GetCachedPresence(const FUniqueNe
 				epicNetId.ToEpicAccountId(),
 				epicNetId.ToEpicAccountId()
 			};
-			eosResult = EOS_Presence_GetJoinInfo(this->presenceHandle, &getJoinInfoOptions, joinInfo, &joinInfoLen);
+			eosResult = EOS_Presence_GetJoinInfo(this->PresenceHandle, &getJoinInfoOptions, joinInfo, &joinInfoLen);
 			if (eosResult == EOS_EResult::EOS_Success)
 			{
-				IOnlineIdentityPtr identityPtr = this->subsystem->GetIdentityInterface();
+				IOnlineIdentityPtr identityPtr = this->Subsystem->GetIdentityInterface();
 				TSharedPtr<FUserOnlineAccount> userAcc = identityPtr->GetUserAccount(epicNetId);
 
 #if ENGINE_MINOR_VERSION >= 25
@@ -482,7 +482,7 @@ EOnlineCachedResult::Type FOnlinePresenceEpic::GetCachedPresence(const FUniqueNe
 				OutPresence->LastOnline = FDateTime::FromUnixTimestamp(FCString::Atoi64(*lastOnlineString));
 #endif
 
-				IOnlineSessionPtr sessionPtr = this->subsystem->GetSessionInterface();
+				IOnlineSessionPtr sessionPtr = this->Subsystem->GetSessionInterface();
 
 				// Get the session id
 				TSharedPtr<FUniqueNetId const> sessionId = sessionPtr->CreateSessionIdFromString(UTF8_TO_TCHAR(joinInfo));

@@ -5,6 +5,8 @@
 #include "Utilities.h"
 #include <string>
 
+#include "Interfaces/VoiceInterface.h"
+
 IOnlineSessionPtr FOnlineSubsystemEpic::GetSessionInterface() const
 {
 	return this->SessionInterface;
@@ -47,7 +49,17 @@ IOnlineLeaderboardsPtr FOnlineSubsystemEpic::GetLeaderboardsInterface() const
 
 IOnlineVoicePtr FOnlineSubsystemEpic::GetVoiceInterface() const
 {
-	return nullptr;
+	if (VoiceInterface.IsValid() && !bVoiceInterfaceInitialized)
+	{	
+		if (!VoiceInterface->Init())
+		{
+			VoiceInterface = nullptr;
+		}
+
+		bVoiceInterfaceInitialized = true;
+	}
+
+	return VoiceInterface;
 }
 
 IOnlineExternalUIPtr FOnlineSubsystemEpic::GetExternalUIInterface() const
@@ -367,10 +379,18 @@ bool FOnlineSubsystemEpic::Init()
 
 bool FOnlineSubsystemEpic::Shutdown()
 {
+	UE_LOG_ONLINE(VeryVerbose, TEXT("FOnlineSubsystemEpic::Shutdown()"));
+	
+	FOnlineSubsystemImpl::Shutdown();
+	
 	this->IsInit = false;
 	this->PlatformHandle = nullptr;
 
-
+	if (VoiceInterface.IsValid() && bVoiceInterfaceInitialized)
+	{
+		VoiceInterface->Shutdown();
+	}
+	
 #define DESTRUCT_INTERFACE(Interface) \
 	if (Interface.IsValid()) \
 	{ \
@@ -380,9 +400,10 @@ bool FOnlineSubsystemEpic::Shutdown()
 
 	// Destruct the interfaces
 	DESTRUCT_INTERFACE(IdentityInterface);
+	DESTRUCT_INTERFACE(VoiceInterface);
 	DESTRUCT_INTERFACE(SessionInterface);
 	DESTRUCT_INTERFACE(UserInterface);
-	DESTRUCT_INTERFACE(this->PresenceInterface);
+	DESTRUCT_INTERFACE(PresenceInterface);
 
 #undef DESTRUCT_INTERFACE
 

@@ -7,19 +7,19 @@
 
 #include "EpicOnlineServicesLoginTask.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLoginSuccess);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLoginFailure, const FString&, Error);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLoginRequresMFA);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLoginResultPin, const FString&, ErrorMessage);
+
+// DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLoginRequresMFAPin);
 
 UCLASS(MinimalAPI)
 class UEpicOnlineServicesIdentityTask : public UBlueprintAsyncActionBase
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	IOnlineIdentityPtr GetIdentityInterface();
+    IOnlineIdentityPtr GetIdentityInterface() const;
 protected:
-	FDelegateHandle DelegateHandle;
+    FDelegateHandle DelegateHandle;
 };
 
 
@@ -29,92 +29,107 @@ protected:
 UCLASS(BlueprintType, meta = (ExposedAsyncProxy = AsyncTask))
 class ONLINESUBSYSTEMEPIC_API UEpicOnlineServicesLoginTask : public UEpicOnlineServicesIdentityTask
 {
-	GENERATED_BODY()
+    GENERATED_UCLASS_BODY()
 
 public:
-	UEpicOnlineServicesLoginTask();
+    UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
+    FOnLoginResultPin OnLoginSuccess;
 
-	UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
-		FOnLoginSuccess OnLoginSuccess;
+    // UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
+    // FOnLoginFailurePin OnLoginRequiresMFA;
 
-	UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
-		FOnLoginFailure OnLoginFailure;
+    // Login failed.
+    UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
+    FOnLoginResultPin OnLoginFailure;
 
-	UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
-		FOnLoginFailure OnLoginRequiresMFA;
+    /**
+     * Attempts to log in with the specified epic account login flow and credentials
+     */
+    UFUNCTION(BlueprintCallable, Category = "Epic Online Services|Identity", meta = (BlueprintInternalUseOnly = "true", WorldContext="WorldContextObject",
+        DisplayName = "Epic Online Subsystem Login"))
+    static UEpicOnlineServicesLoginTask* TryLogin(UObject* WorldContextObject, class APlayerController* PlayerController, const ELoginType LoginType, const FString UserId, const FString Token);
 
-	/**
-	 * Attempts to log in with the specified epic account login flow and credentials
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Epic Online Services|Identity", meta = (BlueprintInternalUseOnly = "true", DisplayName = "Epic Online Subsystem Login"))
-		static UEpicOnlineServicesLoginTask* TryLogin(ELoginType loginType, FString id, FString token, int32 localUserNum);
-	/**
-	 * Attempts to log in with locally stored credentials
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Epic Online Services|Identity", meta = (BlueprintInternalUseOnly = "true", DisplayName = "Epic Online Subsystem Auto Login"))
-		static UEpicOnlineServicesLoginTask* TryAutoLogin(int32 localUserNum);
+    // /**
+    //  * Attempts to log in with locally stored credentials
+    //  */
+    UFUNCTION(BlueprintCallable, Category = "Epic Online Services|Identity", meta = (BlueprintInternalUseOnly = "true", WorldContext="WorldContextObject",
+        DisplayName = "Epic Online Subsystem Auto Login"))
+    static UEpicOnlineServicesLoginTask* TryAutoLogin(UObject* WorldContextObject, class APlayerController* PlayerController);
 
-	/** UBlueprintAsyncActionBase interface */
-	virtual void Activate() override;
+    /** UBlueprintAsyncActionBase interface */
+    virtual void Activate() override;
 
-	FOnlineAccountCredentials Credentials;
-	int32 LocalUserNum;
+private:
+    FOnlineAccountCredentials Credentials;
+    TWeakObjectPtr<APlayerController> PlayerControllerWeakPtr;
+    UObject* WorldContextObject;
+
 private:
 
-	void OnLoginCompleteDelegate(int32 localUserNum, bool bWasSuccessful, const FUniqueNetId& userId, const FString& errorString);
+    void OnLoginCompleteDelegate(int32 LocalPlayerId, bool bWasSuccessful, const FUniqueNetId& UserId,
+                                 const FString& ErrorString);
 
-	void EndTask();
+    UFUNCTION()
+    void OnLoginComplete();
+
+    UFUNCTION()
+    void OnLoginFailed(const FString& ErrorMessage);
+    
+    void EndTask();
 };
 
 
 UENUM(BlueprintType)
 enum class EConnectLoginType : uint8
 {
-	Epic,
-	Steam,
-	PSN			UMETA(DisplayName = "Playstation Network (PSN)"),
-	XBL			UMETA(DisplayName = "XBox Live (XBL)"),
-	GOG,
-	Discord,
-	Nintendo,
-	NintendoNSA	UMETA(DisplayName = "Nintendo Service Account"),
-	UPlay,
-	OpenID UMETA(DisplayName = "OpenID Connect"),
-	DeviceId,
-	Apple
+    Epic,
+    Steam,
+    PSN UMETA(DisplayName = "Playstation Network (PSN)"),
+    XBL UMETA(DisplayName = "XBox Live (XBL)"),
+    GOG,
+    Discord,
+    Nintendo,
+    NintendoNSA UMETA(DisplayName = "Nintendo Service Account"),
+    UPlay,
+    OpenID UMETA(DisplayName = "OpenID Connect"),
+    DeviceId,
+    Apple
 };
 
 /**
  * Exposes the epic account login flow to blueprints
  */
 UCLASS(BlueprintType, meta = (ExposedAsyncProxy = AsyncTask))
-class ONLINESUBSYSTEMEPIC_API UEpicOnlineServicesConnectLoginTask 
-	: public UEpicOnlineServicesIdentityTask
+class ONLINESUBSYSTEMEPIC_API UEpicOnlineServicesConnectLoginTask
+    : public UEpicOnlineServicesIdentityTask
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 private:
-	int32 localUserIdx;
-	bool createNewAccount;
-	FOnlineAccountCredentials credentials;
-	
-	void OnLoginCompleteDelegate(int32 localUserNum, bool bWasSuccessful, const FUniqueNetId& userId, const FString& errorString);
+    int32 LocalUserNum;
+    bool bCreateNewAccount;
+    FOnlineAccountCredentials Credentials;
 
-	void EndTask();
+    void OnLoginCompleteDelegate(int32 LocalPlayerId, bool bWasSuccessful, const FUniqueNetId& UserId,
+                                 const FString& ErrorString);
+
+    void EndTask();
 
 public:
 
-	UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
-		FOnLoginSuccess OnLoginSuccess;
+    UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
+    FOnLoginResultPin OnLoginSuccess;
 
-	UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
-		FOnLoginFailure OnLoginFailure;
+    UPROPERTY(BlueprintAssignable, Category = "Epic Online Services|Identity")
+    FOnLoginResultPin OnLoginFailure;
 
-	// Attempts to login using user supplied credentials
-	UFUNCTION(BlueprintCallable, Category = "Epic Online Services|Identity", meta = (BlueprintInternalUseOnly = "true", DisplayName = "Connect Login"))
-		static UEpicOnlineServicesConnectLoginTask* TryLogin(int32 LocalPlayerNum, EConnectLoginType LoginType, FString id, FString token, bool CreateNew);
+    // Attempts to login using user supplied credentials
+    UFUNCTION(BlueprintCallable, Category = "Epic Online Services|Identity", meta = (BlueprintInternalUseOnly = "true",
+        DisplayName = "Connect Login"))
+    static UEpicOnlineServicesConnectLoginTask* TryLogin(int32 LocalUserNum, EConnectLoginType LoginType, FString UserId,
+                                                         FString Token, bool bCreateNew);
 
-	FString ConnectLoginTypeToString(EConnectLoginType LoginType);
+    static FString ConnectLoginTypeToString(EConnectLoginType LoginType);
 
-	/** UBlueprintAsyncActionBase interface */
-	virtual void Activate() override;
+    /** UBlueprintAsyncActionBase interface */
+    virtual void Activate() override;
 };

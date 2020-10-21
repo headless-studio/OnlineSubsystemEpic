@@ -32,7 +32,7 @@ class FOnlineUserEpic
 private:
 	/** Hidden on purpose */
 	FOnlineUserEpic()
-		: Subsystem(nullptr)
+		: Subsystem(nullptr), userInfoHandle(nullptr)
 	{
 	}
 

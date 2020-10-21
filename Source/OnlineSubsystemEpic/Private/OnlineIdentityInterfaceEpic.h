@@ -11,27 +11,27 @@ class FOnlineSubsystemEpic;
 class FOnlineIdentityInterfaceEpic
 	: public IOnlineIdentity
 {
-	FOnlineSubsystemEpic* subsystemEpic;
+	FOnlineSubsystemEpic* SubsystemEpic;
 
-	EOS_HConnect connectHandle;
+	EOS_HConnect ConnectHandle;
 
-	EOS_HAuth authHandle;
+	EOS_HAuth AuthHandle;
 
-	EOS_NotificationId notifyLoginStatusChangedId;
+	EOS_NotificationId NotifyLoginStatusChangedId;
 
-	EOS_NotificationId notifyAuthExpiration;
+	EOS_NotificationId NotifyAuthExpiration;
 
 	FOnlineIdentityInterfaceEpic() = delete;
 
-	static void EOS_Connect_OnLoginComplete(EOS_Connect_LoginCallbackInfo const* Data);
-	static void EOS_Connect_OnAuthExpiration(EOS_Connect_AuthExpirationCallbackInfo const* Data);
-	static void EOS_Connect_OnLoginStatusChanged(EOS_Connect_LoginStatusChangedCallbackInfo const* Data);
-	static void EOS_Auth_OnLoginComplete(EOS_Auth_LoginCallbackInfo const* Data);
-	static void EOS_Auth_OnLogoutComplete(const EOS_Auth_LogoutCallbackInfo* Data);
-	static void EOS_Connect_OnUserCreated(EOS_Connect_CreateUserCallbackInfo const* Data);
-	static void EOS_Connect_OnAccountLinked(EOS_Connect_LinkAccountCallbackInfo const* Data);
+	static void EOS_CALL EOS_Connect_OnLoginComplete(const EOS_Connect_LoginCallbackInfo* Data);
+	static void EOS_CALL EOS_Connect_OnAuthExpiration(const EOS_Connect_AuthExpirationCallbackInfo* Data);
+	static void EOS_CALL EOS_Connect_OnLoginStatusChanged(const EOS_Connect_LoginStatusChangedCallbackInfo* Data);
+	static void EOS_CALL EOS_Auth_OnLoginComplete(const EOS_Auth_LoginCallbackInfo* Data);
+	static void EOS_CALL EOS_Auth_OnLogoutComplete(const EOS_Auth_LogoutCallbackInfo* Data);
+	static void EOS_CALL EOS_Connect_OnUserCreated(const EOS_Connect_CreateUserCallbackInfo* Data);
+	static void EOS_CALL EOS_Connect_OnAccountLinked(const EOS_Connect_LinkAccountCallbackInfo* Data);
 
-	TSharedPtr<FUserOnlineAccount> OnlineUserAcccountFromPUID(EOS_ProductUserId const& PUID) const;
+	TSharedPtr<FUserOnlineAccount> OnlineUserAccountFromPUID(EOS_ProductUserId const& PUID) const;
 	ELoginStatus::Type EOSLoginStatusToUELoginStatus(EOS_ELoginStatus LoginStatus);
 
 public:
@@ -40,20 +40,20 @@ public:
 	FOnlineIdentityInterfaceEpic(FOnlineSubsystemEpic* inSubsystem);
 
 	virtual bool Login(int32 LocalUserNum, const FOnlineAccountCredentials& AccountCredentials) override;
-	bool AutoLogin(int32 LocalUserNum) override;
-	TSharedPtr<const FUniqueNetId> CreateUniquePlayerId(const FString& Str) override;
-	TSharedPtr<const FUniqueNetId> CreateUniquePlayerId(uint8* Bytes, int32 Size) override;
-	TArray<TSharedPtr<FUserOnlineAccount>> GetAllUserAccounts() const override;
-	FString GetAuthToken(int32 LocalUserNum) const override;
-	FString GetAuthType() const override;
-	ELoginStatus::Type GetLoginStatus(const FUniqueNetId& UserId) const override;
-	ELoginStatus::Type GetLoginStatus(int32 LocalUserNum) const override;
-	FPlatformUserId GetPlatformUserIdFromUniqueNetId(const FUniqueNetId& UniqueNetId) const override;
-	FString GetPlayerNickname(const FUniqueNetId& UserId) const override;
-	FString GetPlayerNickname(int32 LocalUserNum) const override;
-	TSharedPtr<const FUniqueNetId> GetUniquePlayerId(int32 LocalUserNum) const override;
-	TSharedPtr<FUserOnlineAccount> GetUserAccount(const FUniqueNetId& UserId) const override;
-	void GetUserPrivilege(const FUniqueNetId& LocalUserId, EUserPrivileges::Type Privilege, const FOnGetUserPrivilegeCompleteDelegate& Delegate) override;
-	bool Logout(int32 LocalUserNum) override;
-	void RevokeAuthToken(const FUniqueNetId& LocalUserId, const FOnRevokeAuthTokenCompleteDelegate& Delegate) override;
+	virtual bool AutoLogin(int32 LocalUserNum) override;
+	virtual TSharedPtr<const FUniqueNetId> CreateUniquePlayerId(const FString& Str) override;
+	virtual TSharedPtr<const FUniqueNetId> CreateUniquePlayerId(uint8* Bytes, int32 Size) override;
+	virtual TArray<TSharedPtr<FUserOnlineAccount>> GetAllUserAccounts() const override;
+	virtual FString GetAuthToken(int32 LocalUserNum) const override;
+	virtual FString GetAuthType() const override;
+	virtual ELoginStatus::Type GetLoginStatus(const FUniqueNetId& UserId) const override;
+	virtual ELoginStatus::Type GetLoginStatus(int32 LocalUserNum) const override;
+	virtual FPlatformUserId GetPlatformUserIdFromUniqueNetId(const FUniqueNetId& UniqueNetId) const override;
+	virtual FString GetPlayerNickname(const FUniqueNetId& UserId) const override;
+	virtual FString GetPlayerNickname(int32 LocalUserNum) const override;
+	virtual TSharedPtr<const FUniqueNetId> GetUniquePlayerId(int32 LocalUserNum) const override;
+	virtual TSharedPtr<FUserOnlineAccount> GetUserAccount(const FUniqueNetId& UserId) const override;
+	virtual void GetUserPrivilege(const FUniqueNetId& LocalUserId, EUserPrivileges::Type Privilege, const FOnGetUserPrivilegeCompleteDelegate& Delegate) override;
+	virtual bool Logout(int32 LocalUserNum) override;
+	virtual void RevokeAuthToken(const FUniqueNetId& LocalUserId, const FOnRevokeAuthTokenCompleteDelegate& Delegate) override;
 };

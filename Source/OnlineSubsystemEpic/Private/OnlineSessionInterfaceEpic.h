@@ -10,6 +10,7 @@
 #include "eos_sdk.h"
 
 class FOnlineSubsystemEpic;
+class FOnlineSessionInfoEpic;
 
 /**
  * Interface definition for the online services session services
@@ -167,6 +168,8 @@ public:
 	virtual FOnlineSessionSettings* GetSessionSettings(FName SessionName) override;
 	virtual bool RegisterPlayer(FName SessionName, const FUniqueNetId& PlayerId, bool bWasInvited) override;
 	virtual bool RegisterPlayers(FName SessionName, const TArray< TSharedRef<const FUniqueNetId> >& Players, bool bWasInvited = false) override;
+	virtual void RegisterVoice(const FUniqueNetId& PlayerId);
+	virtual void UnregisterVoice(const FUniqueNetId& PlayerId);
 	virtual bool UnregisterPlayer(FName SessionName, const FUniqueNetId& PlayerId) override;
 	virtual bool UnregisterPlayers(FName SessionName, const TArray< TSharedRef<const FUniqueNetId> >& Players) override;
 	virtual void RegisterLocalPlayer(const FUniqueNetId& PlayerId, FName SessionName, const FOnRegisterLocalPlayerCompleteDelegate& Delegate) override;

@@ -318,8 +318,8 @@ public:
 	  */
 	EOS_ProductUserId ToProductUserId() const
 	{
-		bool puidValid = (bool)EOS_ProductUserId_IsValid(this->productUserId);
-		check(puidValid);
+		const bool bPuidValid = static_cast<bool>(EOS_ProductUserId_IsValid(this->productUserId));
+		check(bPuidValid);
 		return this->productUserId;
 	}
 

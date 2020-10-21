@@ -9,9 +9,9 @@ class FOnlinePresenceEpic
 	: public IOnlinePresence
 {
 private:
-	FOnlineSubsystemEpic const* subsystem;
+	FOnlineSubsystemEpic* Subsystem;
 
-	EOS_HPresence presenceHandle;
+	EOS_HPresence PresenceHandle;
 
 	EOS_NotificationId OnPresenceChangedHandle;
 
@@ -26,7 +26,7 @@ private:
 
 
 public:
-	FOnlinePresenceEpic(FOnlineSubsystemEpic const* InSubsystem);
+	FOnlinePresenceEpic(FOnlineSubsystemEpic* InSubsystem);
 
 	virtual void SetPresence(const FUniqueNetId& User, const FOnlineUserPresenceStatus& Status, const FOnPresenceTaskCompleteDelegate& Delegate = FOnPresenceTaskCompleteDelegate()) override;
 

@@ -7,6 +7,8 @@
 #include "SocketSubsystem.h"
 #include "Utilities.h"
 #include "eos_auth.h"
+#include "OnlineSubsystemEpic.h"
+#include "Interfaces/VoiceInterface.h"
 
 // ---------------------------------------------
 // FOnlineSessionInfoEpic definitions
@@ -1465,53 +1467,53 @@ TSharedPtr<const FUniqueNetId> FOnlineSessionEpic::CreateSessionIdFromString(con
 
 bool FOnlineSessionEpic::CreateSession(int32 HostingPlayerNum, FName SessionName, const FOnlineSessionSettings& NewSessionSettings)
 {
-	IOnlineIdentityPtr identityPtr = this->Subsystem->GetIdentityInterface();
-	check(identityPtr);
+	IOnlineIdentityPtr IdentityPtr = this->Subsystem->GetIdentityInterface();
+	check(IdentityPtr);
 
-	TSharedPtr<const FUniqueNetId> netId = identityPtr->GetUniquePlayerId(HostingPlayerNum);
-	return this->CreateSession(*netId, SessionName, NewSessionSettings);
+	TSharedPtr<const FUniqueNetId> NetId = IdentityPtr->GetUniquePlayerId(HostingPlayerNum);
+	return this->CreateSession(*NetId, SessionName, NewSessionSettings);
 }
 bool FOnlineSessionEpic::CreateSession(const FUniqueNetId& HostingPlayerId, FName SessionName, const FOnlineSessionSettings& NewSessionSettings)
 {
-	FString err;
-	uint32 result = ONLINE_FAIL;
+	FString Err;
+	uint32 Result = ONLINE_FAIL;
 	if (!HostingPlayerId.IsValid())
 	{
-		err = TEXT("HostingPlayerId invalid!");
+		Err = TEXT("HostingPlayerId invalid!");
 	}
 	else
 	{
-		FNamedOnlineSession* session = this->GetNamedSession(SessionName);
-		if (session)
+		FNamedOnlineSession* Session = this->GetNamedSession(SessionName);
+		if (Session)
 		{
-			err = FString::Printf(TEXT("Can't create session with name \"%s\". Session already exists"), *SessionName.ToString());
+			Err = FString::Printf(TEXT("Can't create session with name \"%s\". Session already exists"), *SessionName.ToString());
 		}
 		else
 		{
 			// Create and store session locally
-			session = this->AddNamedSession(SessionName, NewSessionSettings);
-			checkf(session, TEXT("Failed to create new named session"));
+			Session = this->AddNamedSession(SessionName, NewSessionSettings);
+			checkf(Session, TEXT("Failed to create new named session"));
 
-			session->SessionState = EOnlineSessionState::Creating;
-			session->NumOpenPrivateConnections = NewSessionSettings.NumPrivateConnections;
-			session->NumOpenPublicConnections = NewSessionSettings.NumPublicConnections;
+			Session->SessionState = EOnlineSessionState::Creating;
+			Session->NumOpenPrivateConnections = NewSessionSettings.NumPrivateConnections;
+			Session->NumOpenPublicConnections = NewSessionSettings.NumPublicConnections;
 
 
-			session->HostingPlayerNum = INDEX_NONE; // HostingPlayernNum is going to be deprecated. Don't use it here
-			session->LocalOwnerId = HostingPlayerId.AsShared();
-			session->bHosting = true; // A person creating a session is always hosting
+			Session->HostingPlayerNum = INDEX_NONE; // HostingPlayernNum is going to be deprecated. Don't use it here
+			Session->LocalOwnerId = HostingPlayerId.AsShared();
+			Session->bHosting = true; // A person creating a session is always hosting
 
-			IOnlineIdentityPtr identityPtr = this->Subsystem->GetIdentityInterface();
-			if (identityPtr.IsValid())
+			IOnlineIdentityPtr IdentityPtr = this->Subsystem->GetIdentityInterface();
+			if (IdentityPtr.IsValid())
 			{
-				session->OwningUserName = identityPtr->GetPlayerNickname(HostingPlayerId);
+				Session->OwningUserName = IdentityPtr->GetPlayerNickname(HostingPlayerId);
 			}
 			else
 			{
-				session->OwningUserName = FString(TEXT("EPIC User"));
+				Session->OwningUserName = FString(TEXT("EPIC User"));
 			}
 
-			session->SessionSettings.BuildUniqueId = GetBuildUniqueId();
+			Session->SessionSettings.BuildUniqueId = GetBuildUniqueId();
 
 			// Interface with EOS
 			FString bucketId;
@@ -1526,8 +1528,8 @@ bool FOnlineSessionEpic::CreateSession(const FUniqueNetId& HostingPlayerId, FNam
 				TCHAR_TO_UTF8(*SessionName.ToString()),
 				TCHAR_TO_UTF8(*bucketId),
 				static_cast<uint32_t>(NewSessionSettings.NumPublicConnections),
-				((FUniqueNetIdEpic)HostingPlayerId).ToProductUserId(),
-				session->SessionSettings.bUsesPresence
+				static_cast<FUniqueNetIdEpic>(HostingPlayerId).ToProductUserId(),
+				Session->SessionSettings.bUsesPresence
 			};
 
 			// Create a new - local - session handle
@@ -1535,8 +1537,8 @@ bool FOnlineSessionEpic::CreateSession(const FUniqueNetId& HostingPlayerId, FNam
 			EOS_EResult eosResult = EOS_Sessions_CreateSessionModification(this->sessionsHandle, &createSessionOptions, &modificationHandle);
 			if (eosResult == EOS_EResult::EOS_Success)
 			{
-				this->CreateSessionModificationHandle(NewSessionSettings, modificationHandle, err);
-				if (err.IsEmpty())
+				this->CreateSessionModificationHandle(NewSessionSettings, modificationHandle, Err);
+				if (Err.IsEmpty())
 				{
 					// Update the remote session
 					EOS_Sessions_UpdateSessionOptions updateSessionOptions = {
@@ -1550,7 +1552,7 @@ bool FOnlineSessionEpic::CreateSession(const FUniqueNetId& HostingPlayerId, FNam
 					EOS_Sessions_UpdateSession(this->sessionsHandle, &updateSessionOptions, addionalData, &FOnlineSessionEpic::OnEOSCreateSessionComplete);
 
 					// Mark the creation operation as pending
-					result = ONLINE_IO_PENDING;
+					Result = ONLINE_IO_PENDING;
 				}
 				else
 				{
@@ -1561,7 +1563,7 @@ bool FOnlineSessionEpic::CreateSession(const FUniqueNetId& HostingPlayerId, FNam
 			else
 			{
 				char const* resultStr = EOS_EResult_ToString(eosResult);
-				err = FString::Printf(TEXT("[EOS SDK] Error creating session - Error Code: %s"), UTF8_TO_TCHAR(resultStr));
+				Err = FString::Printf(TEXT("[EOS SDK] Error creating session - Error Code: %s"), UTF8_TO_TCHAR(resultStr));
 
 				// We failed to create a new session, remove it from the local list
 				this->RemoveNamedSession(SessionName);
@@ -1572,16 +1574,16 @@ bool FOnlineSessionEpic::CreateSession(const FUniqueNetId& HostingPlayerId, FNam
 		}
 	}
 
-	if (result != ONLINE_IO_PENDING)
+	if (Result != ONLINE_IO_PENDING)
 	{
-		if (result == ONLINE_FAIL)
+		if (Result == ONLINE_FAIL)
 		{
-			UE_LOG_ONLINE_SESSION(Warning, TEXT("%s"), *err);
+			UE_LOG_ONLINE_SESSION(Warning, TEXT("%s"), *Err);
 		}
-		TriggerOnCreateSessionCompleteDelegates(SessionName, (result == ONLINE_SUCCESS) ? true : false);
+		TriggerOnCreateSessionCompleteDelegates(SessionName, (Result == ONLINE_SUCCESS) ? true : false);
 	}
 
-	return result == ONLINE_IO_PENDING || result == ONLINE_SUCCESS;
+	return Result == ONLINE_IO_PENDING || Result == ONLINE_SUCCESS;
 }
 
 bool FOnlineSessionEpic::StartSession(FName SessionName)
@@ -2348,7 +2350,7 @@ bool FOnlineSessionEpic::RegisterPlayers(FName SessionName, const TArray< TShare
 	if (Session)
 	{
 		TArray<TSharedRef<const FUniqueNetId>> successfullyRegisteredPlayers;
-		EOS_ProductUserId* userIdArr = (EOS_ProductUserId*)malloc(Players.Num() * sizeof(EOS_ProductUserId));
+		EOS_ProductUserId* userIdArr = static_cast<EOS_ProductUserId*>(malloc(Players.Num() * sizeof(EOS_ProductUserId)));
 		for (int32 i = 0; i < Players.Num(); ++i)
 		{
 			TSharedRef<FUniqueNetId const> playerId = Players[i];
@@ -2357,6 +2359,7 @@ bool FOnlineSessionEpic::RegisterPlayers(FName SessionName, const TArray< TShare
 			{
 				Session->RegisteredPlayers.Add(playerId);
 				successfullyRegisteredPlayers.Add(playerId);
+				RegisterVoice(*playerId);
 
 				TSharedRef<FUniqueNetIdEpic const> epicNetId = StaticCastSharedRef<FUniqueNetIdEpic const>(playerId);
 				userIdArr[i] = epicNetId->ToProductUserId();
@@ -2407,6 +2410,38 @@ bool FOnlineSessionEpic::RegisterPlayers(FName SessionName, const TArray< TShare
 	return result == ONLINE_SUCCESS || result == ONLINE_IO_PENDING;
 }
 
+void FOnlineSessionEpic::RegisterVoice(const FUniqueNetId& PlayerId)
+{
+	// Use the Null System voice system.
+	IOnlineVoicePtr VoiceInt = Subsystem->GetVoiceInterface();
+	if (VoiceInt.IsValid())
+	{
+		if(!Subsystem->IsLocalPlayer(PlayerId))
+		{
+			VoiceInt->RegisterRemoteTalker(PlayerId);
+		}
+		else
+		{
+			VoiceInt->ProcessMuteChangeNotification();
+		}
+	}
+}
+
+void FOnlineSessionEpic::UnregisterVoice(const FUniqueNetId& PlayerId)
+{
+	IOnlineVoicePtr VoiceInt = Subsystem->GetVoiceInterface();
+	if (VoiceInt.IsValid())
+	{
+		if (!Subsystem->IsLocalPlayer(PlayerId))
+		{
+			if (VoiceInt.IsValid())
+			{
+				VoiceInt->UnregisterRemoteTalker(PlayerId);
+			}
+		}
+	}
+}
+
 bool FOnlineSessionEpic::UnregisterPlayer(FName SessionName, const FUniqueNetId& PlayerId)
 {
 	TArray<TSharedRef<const FUniqueNetId>> players;
@@ -2433,6 +2468,7 @@ bool FOnlineSessionEpic::UnregisterPlayers(FName SessionName, const TArray< TSha
 			{
 				session->RegisteredPlayers.RemoveAtSwap(i);
 				successfullyRegisteredPlayers.Add(playerId);
+				UnregisterVoice(*playerId);
 
 				// update number of open connections
 				if (session->NumOpenPublicConnections < session->SessionSettings.NumPublicConnections)
@@ -2488,13 +2524,13 @@ void FOnlineSessionEpic::RegisterLocalPlayer(const FUniqueNetId& PlayerId, FName
 	if (!session)
 	{
 		UE_LOG_ONLINE_SESSION(Warning, TEXT("Tried registering local player in session, but session doesn't exist."));
-		Delegate.ExecuteIfBound(PlayerId, EOnJoinSessionCompleteResult::SessionDoesNotExist);
+		auto _ = Delegate.ExecuteIfBound(PlayerId, EOnJoinSessionCompleteResult::SessionDoesNotExist);
 		return;
 	}
 
 	if (this->IsPlayerInSession(SessionName, PlayerId))
 	{
-		Delegate.ExecuteIfBound(PlayerId, EOnJoinSessionCompleteResult::AlreadyInSession);
+		auto _ = Delegate.ExecuteIfBound(PlayerId, EOnJoinSessionCompleteResult::AlreadyInSession);
 		return;
 	}
 
@@ -2509,7 +2545,7 @@ void FOnlineSessionEpic::RegisterLocalPlayer(const FUniqueNetId& PlayerId, FName
 	{
 		session->NumOpenPrivateConnections -= 1;
 	}
-	Delegate.ExecuteIfBound(PlayerId, EOnJoinSessionCompleteResult::Success);
+	auto _ = Delegate.ExecuteIfBound(PlayerId, EOnJoinSessionCompleteResult::Success);
 }
 void FOnlineSessionEpic::UnregisterLocalPlayer(const FUniqueNetId& PlayerId, FName SessionName, const FOnUnregisterLocalPlayerCompleteDelegate& Delegate)
 {
@@ -2517,7 +2553,7 @@ void FOnlineSessionEpic::UnregisterLocalPlayer(const FUniqueNetId& PlayerId, FNa
 	if (!session)
 	{
 		UE_LOG_ONLINE_SESSION(Warning, TEXT("Tried registering local player in session, but session doesn't exist."));
-		Delegate.ExecuteIfBound(PlayerId, false);
+		auto _ = Delegate.ExecuteIfBound(PlayerId, false);
 		return;
 	}
 
@@ -2532,7 +2568,7 @@ void FOnlineSessionEpic::UnregisterLocalPlayer(const FUniqueNetId& PlayerId, FNa
 	{
 		session->NumOpenPrivateConnections += 1;
 	}
-	Delegate.ExecuteIfBound(PlayerId, true);
+	auto _ = Delegate.ExecuteIfBound(PlayerId, true);
 }
 
 int32 FOnlineSessionEpic::GetNumSessions()

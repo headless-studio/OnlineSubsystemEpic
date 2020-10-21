@@ -6,248 +6,286 @@
 #include "OnlineSubsystemEpicTypes.h"
 #include "Utilities.h"
 
-IOnlineIdentityPtr UEpicOnlineServicesIdentityTask::GetIdentityInterface()
+IOnlineIdentityPtr UEpicOnlineServicesIdentityTask::GetIdentityInterface() const
 {
-	UWorld* world = GetWorld();
-	IOnlineSubsystem* subsystem = Online::GetSubsystem(world, EPIC_SUBSYSTEM);
-	if (subsystem == nullptr) {
-		return nullptr;
-	}
-	IOnlineIdentityPtr interface = subsystem->GetIdentityInterface();
-	if (!interface.IsValid()) {
-		return nullptr;
-	}
-	return interface;
+    UWorld* World = GetWorld();
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(World, EPIC_SUBSYSTEM);
+    if (Subsystem == nullptr)
+    {
+        return nullptr;
+    }
+    IOnlineIdentityPtr Interface = Subsystem->GetIdentityInterface();
+    if (!Interface.IsValid())
+    {
+        return nullptr;
+    }
+    return Interface;
 }
 
 // ------------------------------------
 // UEpicOnlineServicesIdentityTask - Login via EOS Auth
 // ------------------------------------
-UEpicOnlineServicesLoginTask::UEpicOnlineServicesLoginTask()
-	: LocalUserNum(0)
+UEpicOnlineServicesLoginTask::UEpicOnlineServicesLoginTask(const FObjectInitializer& ObjectInitializer) :
+    Super(ObjectInitializer), WorldContextObject(nullptr)
 {
 }
 
-void UEpicOnlineServicesLoginTask::OnLoginCompleteDelegate(int32 localUserNum, bool bWasSuccessful, const FUniqueNetId& userId, const FString& errorString)
+void UEpicOnlineServicesLoginTask::OnLoginCompleteDelegate(int32 LocalPlayerId, bool bWasSuccessful,
+                                                           const FUniqueNetId& UserId, const FString& ErrorString)
 {
-	FString error = errorString;
-	if (bWasSuccessful)
-	{
-		this->OnLoginSuccess.Broadcast();
-	}
-	else
-	{
-		this->OnLoginFailure.Broadcast(errorString);
-	}
+    if (bWasSuccessful)
+    {
+        
+        if(PlayerControllerWeakPtr.IsValid())
+        {
+            ULocalPlayer* LocalPlayer = PlayerControllerWeakPtr->GetLocalPlayer();
+            if (LocalPlayer != nullptr)
+            {
+                LocalPlayer->SetCachedUniqueNetId(UserId.AsShared());
+            }
 
-	this->EndTask();
-} 
+            if (PlayerControllerWeakPtr->PlayerState != nullptr)
+            {
+                PlayerControllerWeakPtr->PlayerState->SetUniqueId(FUniqueNetIdRepl(UserId));
+                check(PlayerControllerWeakPtr->PlayerState->GetUniqueId() == UserId);
+            }
+        }
+        OnLoginComplete();
+    }
+    else
+    {
+        OnLoginFailed(ErrorString);
+    }
+}
+
+void UEpicOnlineServicesLoginTask::OnLoginComplete()
+{
+    OnLoginSuccess.Broadcast(TEXT(""));
+    EndTask();
+}
+
+void UEpicOnlineServicesLoginTask::OnLoginFailed(const FString& ErrorMessage)
+{
+    OnLoginFailure.Broadcast(ErrorMessage);
+    EndTask();
+}
 
 void UEpicOnlineServicesLoginTask::EndTask()
 {
-	if (IOnlineIdentityPtr identityInterface = this->GetIdentityInterface()) 
-	{
-		identityInterface->ClearOnLoginCompleteDelegate_Handle(this->LocalUserNum, DelegateHandle);
-	}
+    IOnlineIdentityPtr IdentityInterface = GetIdentityInterface();
+    if (IdentityInterface.IsValid() && PlayerControllerWeakPtr.IsValid())
+    {
+        IdentityInterface->ClearOnLoginCompleteDelegate_Handle(PlayerControllerWeakPtr->NetPlayerIndex, DelegateHandle);
+    }
 }
 
 void UEpicOnlineServicesLoginTask::Activate()
 {
-	if (IOnlineIdentityPtr identityInterface = this->GetIdentityInterface())
-	{
-		if (identityInterface->Login(LocalUserNum, Credentials))
-		{
-			// Everything went as planned, return
-			return;
-		}
-	}
+    if (IOnlineIdentityPtr IdentityInterface = this->GetIdentityInterface())
+    {
+        if (PlayerControllerWeakPtr.IsValid() && IdentityInterface->Login(PlayerControllerWeakPtr->NetPlayerIndex, Credentials))
+        {
+            // Everything went as planned, return
+            return;
+        }
+    }
 
-	// Something went wrong, abort
-	this->OnLoginFailure.Broadcast(TEXT("Failed starting login task"));
-	this->EndTask();
+    // Something went wrong, abort
+    this->OnLoginFailure.Broadcast(TEXT("Failed starting login task"));
+    this->EndTask();
 }
 
-UEpicOnlineServicesLoginTask* UEpicOnlineServicesLoginTask::TryLogin(ELoginType loginType, FString id, FString token, int32 localUserNum)
+UEpicOnlineServicesLoginTask* UEpicOnlineServicesLoginTask::TryLogin(UObject* WorldContextObject, class APlayerController* PlayerController, const ELoginType LoginType, const FString UserId,
+                                                                     const FString Token)
 {
-	UEpicOnlineServicesLoginTask* task = NewObject<UEpicOnlineServicesLoginTask>();
+    UEpicOnlineServicesLoginTask* Task = NewObject<UEpicOnlineServicesLoginTask>();
 
-	IOnlineIdentityPtr identityInterface = task->GetIdentityInterface();
-	if (identityInterface == nullptr) 
-	{
-		task->OnLoginFailure.Broadcast(TEXT("Failed retrieving Identity Interface"));
-		task->EndTask();
-		return nullptr;
-	}
+    IOnlineIdentityPtr IdentityInterface = Task->GetIdentityInterface();
+    if (IdentityInterface == nullptr)
+    {
+        Task->OnLoginFailure.Broadcast(TEXT("Failed retrieving Identity Interface"));
+        Task->EndTask();
+        return nullptr;
+    }
 
-	auto loginCompleteDelegate = FOnLoginCompleteDelegate::CreateUObject(task, &UEpicOnlineServicesLoginTask::OnLoginCompleteDelegate);
-	task->DelegateHandle = identityInterface->AddOnLoginCompleteDelegate_Handle(task->LocalUserNum, loginCompleteDelegate);
+    if(PlayerController == nullptr)
+    {
+        Task->OnLoginFailure.Broadcast(TEXT("Failed retrieving PlayerController"));
+        Task->EndTask();
+        return nullptr;
 
-	task->Credentials.Type = FString::Printf(TEXT("EAS:%s"), *FUtils::GetEnumValueAsString<ELoginType>("ELoginType", loginType));
+    }
+    Task->WorldContextObject = WorldContextObject;
+    Task->PlayerControllerWeakPtr = PlayerController;
 
-	switch (loginType)
-	{
-	case ELoginType::AccountPortal:
-	case ELoginType::DeviceCode:
-	case ELoginType::PersistentAuth:
-		task->Credentials.Id = TEXT("");
-		task->Credentials.Token = TEXT("");
-		break;
-	case ELoginType::ExchangeCode:
-		task->Credentials.Token = TEXT("");
-		task->Credentials.Id = id;
-	case ELoginType::Password:
-	case ELoginType::Developer:
-		task->Credentials.Id = id;
-		task->Credentials.Token = token;
-		break;
-	}
+    const FOnLoginCompleteDelegate LoginCompleteDelegate = FOnLoginCompleteDelegate::CreateUObject(
+        Task, &UEpicOnlineServicesLoginTask::OnLoginCompleteDelegate);
 
-	return task;
+    Task->DelegateHandle = IdentityInterface->AddOnLoginCompleteDelegate_Handle(
+        Task->PlayerControllerWeakPtr->NetPlayerIndex, LoginCompleteDelegate);
+
+    Task->Credentials.Type = FString::Printf(
+        TEXT("EAS:%s"), *FUtils::GetEnumValueAsString<ELoginType>("ELoginType", LoginType));
+
+    switch (LoginType)
+    {
+    case ELoginType::AccountPortal:
+    case ELoginType::DeviceCode:
+    case ELoginType::PersistentAuth:
+        Task->Credentials.Id = TEXT("");
+        Task->Credentials.Token = TEXT("");
+        break;
+    case ELoginType::ExchangeCode:
+        Task->Credentials.Token = TEXT("");
+        Task->Credentials.Id = UserId;
+    case ELoginType::Password:
+    case ELoginType::Developer:
+        Task->Credentials.Id = UserId;
+        Task->Credentials.Token = Token;
+        break;
+    default:
+        break;
+    }
+
+    return Task;
 }
 
-UEpicOnlineServicesLoginTask* UEpicOnlineServicesLoginTask::TryAutoLogin(int32 localUserNum)
+UEpicOnlineServicesLoginTask* UEpicOnlineServicesLoginTask::TryAutoLogin(UObject* WorldContextObject, class APlayerController* PlayerController)
 {
-	return UEpicOnlineServicesLoginTask::TryLogin(ELoginType::PersistentAuth, FString(), FString(), localUserNum);
+    return TryLogin(WorldContextObject, PlayerController, ELoginType::PersistentAuth, FString(), FString());
 }
 
 // ------------------------------------
 // UEpicOnlineServicesConnectLoginTask - Login via EOS Connect
 // ------------------------------------
-UEpicOnlineServicesConnectLoginTask* UEpicOnlineServicesConnectLoginTask::TryLogin(int32 LocalUserNum, EConnectLoginType LoginType, FString Id, FString Token, bool CreateNew)
+UEpicOnlineServicesConnectLoginTask* UEpicOnlineServicesConnectLoginTask::TryLogin(
+    int32 LocalUserNum, EConnectLoginType LoginType, FString UserId, FString Token, bool bCreateNew)
 {
-	UEpicOnlineServicesConnectLoginTask* task = NewObject<UEpicOnlineServicesConnectLoginTask>();
+    UEpicOnlineServicesConnectLoginTask* Task = NewObject<UEpicOnlineServicesConnectLoginTask>();
 
-	IOnlineIdentityPtr identityInterface = task->GetIdentityInterface();
-	if (identityInterface == nullptr) 
-	{
-		task->OnLoginFailure.Broadcast(TEXT("Failed retrieving Identity Interface"));
-		task->EndTask();
-		return nullptr;
-	}
+    IOnlineIdentityPtr IdentityInterface = Task->GetIdentityInterface();
+    if (IdentityInterface == nullptr)
+    {
+        Task->OnLoginFailure.Broadcast(TEXT("Failed retrieving Identity Interface"));
+        Task->EndTask();
+        return nullptr;
+    }
 
-	// Set the login delegate
-	auto loginCompleteDelegate = FOnLoginCompleteDelegate::CreateUObject(task, &UEpicOnlineServicesConnectLoginTask::OnLoginCompleteDelegate);
-	task->DelegateHandle = identityInterface->AddOnLoginCompleteDelegate_Handle(LocalUserNum, loginCompleteDelegate);
+    // Set the login delegate
+    const FOnLoginCompleteDelegate LoginCompleteDelegate = FOnLoginCompleteDelegate::CreateUObject(
+        Task, &UEpicOnlineServicesConnectLoginTask::OnLoginCompleteDelegate);
+    Task->DelegateHandle = IdentityInterface->AddOnLoginCompleteDelegate_Handle(LocalUserNum, LoginCompleteDelegate);
 
-	// Convert the input argument to credentials
-	task->credentials.Id = Id;
-	task->credentials.Token = Token;
-	task->credentials.Type = FString::Printf(TEXT("CONNECT:%s"), *task->ConnectLoginTypeToString(LoginType));
+    // Convert the input argument to credentials
+    Task->Credentials.Id = UserId;
+    Task->Credentials.Token = Token;
+    Task->Credentials.Type = FString::Printf(TEXT("CONNECT:%s"), *Task->ConnectLoginTypeToString(LoginType));
 
-	// Save if we want to create a new account if we get a continuance token
-	task->createNewAccount = CreateNew;
+    // Save if we want to create a new account if we get a continuance token
+    Task->bCreateNewAccount = bCreateNew;
 
-	return task;
+    return Task;
 }
 
 void UEpicOnlineServicesConnectLoginTask::Activate()
 {
-	IOnlineIdentityPtr identityInterface = this->GetIdentityInterface();
-	if (identityInterface)
-	{
-		if (identityInterface->Login(this->localUserIdx, this->credentials))
-		{
-			// Everything went as planned, return
-			return;
-		}
-	}
+    IOnlineIdentityPtr IdentityInterface = this->GetIdentityInterface();
+    if (IdentityInterface)
+    {
+        if (IdentityInterface->Login(this->LocalUserNum, this->Credentials))
+        {
+            // Everything went as planned, return
+            return;
+        }
+    }
 
-	// Something went wrong, abort
-	this->OnLoginFailure.Broadcast(TEXT("Failed starting login task"));
-	this->EndTask();
+    // Something went wrong, abort
+    this->OnLoginFailure.Broadcast(TEXT("Failed starting login task"));
+    this->EndTask();
 }
 
 void UEpicOnlineServicesConnectLoginTask::EndTask()
 {
-	if (IOnlineIdentityPtr identityInterface = this->GetIdentityInterface())
-	{
-		identityInterface->ClearOnLoginCompleteDelegate_Handle(this->localUserIdx, DelegateHandle);
-	}
+    if (IOnlineIdentityPtr IdentityInterface = this->GetIdentityInterface())
+    {
+        IdentityInterface->ClearOnLoginCompleteDelegate_Handle(this->LocalUserNum, DelegateHandle);
+    }
 }
 
-void UEpicOnlineServicesConnectLoginTask::OnLoginCompleteDelegate(int32 localUserNum, bool bWasSuccessful, const FUniqueNetId& userId, const FString& errorString)
+void UEpicOnlineServicesConnectLoginTask::OnLoginCompleteDelegate(int32 LocalPlayerId, bool bWasSuccessful,
+                                                                  const FUniqueNetId& UserId,
+                                                                  const FString& ErrorString)
 {
-	FString error = errorString;
-	if (bWasSuccessful)
-	{
-		this->OnLoginSuccess.Broadcast();
-	}
-	else
-	{
-		// If the login failed, but we got an FUniqueNetId
-		//  we can use continuance token to restart the process
-		if (userId.IsValid() && this->createNewAccount)
-		{
-			UE_LOG_ONLINE_IDENTITY(Display, TEXT("Restarting login flow with continuance token."));
+    FString Error = ErrorString;
+    if (bWasSuccessful)
+    {
+        this->OnLoginSuccess.Broadcast(TEXT(""));
+    }
+    else
+    {
+        // If the login failed, but we got an FUniqueNetId
+        //  we can use continuance token to restart the process
+        if (UserId.IsValid() && this->bCreateNewAccount)
+        {
+            UE_LOG_ONLINE_IDENTITY(Display, TEXT("Restarting login flow with continuance token."));
 
-			IOnlineIdentityPtr identityPtr = this->GetIdentityInterface();
-			
-			FOnlineAccountCredentials contCredentials;
-			contCredentials.Type = TEXT("CONNECT:Continuance");
-			contCredentials.Id = TEXT("");
-			contCredentials.Token = userId.ToString();
+            IOnlineIdentityPtr identityPtr = this->GetIdentityInterface();
 
-			if (identityPtr->Login(localUserNum, contCredentials))
-			{
-				// Everything went well, return
-				return;
-			}
-			else
-			{
-				error = TEXT("Failed restarting login flow with continuance token.");
-			}
-		}
-		else
-		{
-			error = TEXT("User doesn't exist and no new shall be created.");
-		}
-	}
+            FOnlineAccountCredentials contCredentials;
+            contCredentials.Type = TEXT("CONNECT:Continuance");
+            contCredentials.Id = TEXT("");
+            contCredentials.Token = UserId.ToString();
 
-	OnLoginFailure.Broadcast(error);
-	this->EndTask();
+            if (identityPtr->Login(LocalPlayerId, contCredentials))
+            {
+                // Everything went well, return
+                return;
+            }
+            else
+            {
+                Error = TEXT("Failed restarting login flow with continuance token.");
+            }
+        }
+        else
+        {
+            Error = TEXT("User doesn't exist and no new shall be created.");
+        }
+    }
+
+    OnLoginFailure.Broadcast(Error);
+    this->EndTask();
 }
 
-FString UEpicOnlineServicesConnectLoginTask::ConnectLoginTypeToString(EConnectLoginType LoginType)
+FString UEpicOnlineServicesConnectLoginTask::ConnectLoginTypeToString(const EConnectLoginType LoginType)
 {
-	switch (LoginType)
-	{
-	case EConnectLoginType::Steam:
-		return TEXT("steam");
-		break;
-	case EConnectLoginType::PSN:
-		return TEXT("psn");
-		break;
-	case EConnectLoginType::XBL:
-		return TEXT("xbl");
-		break;
-	case EConnectLoginType::GOG:
-		return TEXT("gog");
-		break;
-	case EConnectLoginType::Discord:
-		return TEXT("discord");
-		break;
-	case EConnectLoginType::Nintendo:
-		return TEXT("nintendo_id");
-		break;
-	case EConnectLoginType::NintendoNSA:
-		return TEXT("nintendo_nsa");
-		break;
-	case EConnectLoginType::UPlay:
-		return TEXT("uplay");
-		break;
-	case EConnectLoginType::OpenID:
-		return TEXT("openid");
-		break;
-	case EConnectLoginType::DeviceId:
-		return TEXT("device");
-		break;
-	case EConnectLoginType::Apple:
-		return TEXT("apple");
-		break;
-	default:
-		checkNoEntry();
-		break;
-	}
-	
-	return TEXT("");
+    switch (LoginType)
+    {
+    case EConnectLoginType::Steam:
+        return TEXT("steam");
+    case EConnectLoginType::PSN:
+        return TEXT("psn");
+    case EConnectLoginType::XBL:
+        return TEXT("xbl");
+    case EConnectLoginType::GOG:
+        return TEXT("gog");
+    case EConnectLoginType::Discord:
+        return TEXT("discord");
+    case EConnectLoginType::Nintendo:
+        return TEXT("nintendo_id");
+    case EConnectLoginType::NintendoNSA:
+        return TEXT("nintendo_nsa");
+    case EConnectLoginType::UPlay:
+        return TEXT("uplay");
+    case EConnectLoginType::OpenID:
+        return TEXT("openid");
+    case EConnectLoginType::DeviceId:
+        return TEXT("device");
+    case EConnectLoginType::Apple:
+        return TEXT("apple");
+    default:
+        checkNoEntry();
+        break;
+    }
+
+    return TEXT("");
 }
